@@ -1,0 +1,33 @@
+# ─── Private authoring layer (never shipped) ─────────────────────────────────
+/CLAUDE.md
+/GEMINI.md
+/GPT.md
+/knowledge/
+.dev/
+
+# ─── Tooling / orchestration session state (not product) ────────────────────
+.omc/
+.superpowers/
+docs
+
+# ─── Skill data persistence (runtime artifacts, not structure) ───────────────
+skills/**/data/database/*.db
+skills/**/data/database/*.sqlite3
+skills/**/data/database/*.sqlite
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# ─── OS / editor noise ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
