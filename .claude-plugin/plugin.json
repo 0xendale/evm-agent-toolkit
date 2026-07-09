@@ -1,0 +1,36 @@
+{
+  "name": "evm-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for EVM security analysis, gas profiling, compiler diagnostics, and transaction simulation. Provides autonomous coding agents with deterministic, schema-validated tools for Ethereum smart contract development.",
+  "author": {
+    "name": "EVM Skills Hub Contributors"
+  },
+  "repository": "https://github.com/0xendale/evm-agent-toolkit",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "evm",
+    "ethereum",
+    "solidity",
+    "slither",
+    "foundry",
+    "security",
+    "gas-optimization",
+    "smart-contracts",
+    "autonomous-agents"
+  ],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx tsx \"${CLAUDE_PLUGIN_ROOT}/src/hooks/user_prompt_submit.ts\" \"${PROMPT}\"",
+            "timeout": 5,
+            "statusMessage": "EVM Context Injection..."
+          }
+        ]
+      }
+    ]
+  }
+}

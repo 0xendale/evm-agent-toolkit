@@ -1,16 +1,8 @@
-# ─── Private authoring layer (never shipped) ─────────────────────────────────
-/CLAUDE.md
-/GEMINI.md
-/GPT.md
-/knowledge/
-.dev/
+# ─── Build artifacts ─────────────────────────────────────────────────────────
+/build
+/node_modules
 
-# ─── Tooling / orchestration session state (not product) ────────────────────
-.omc/
-.superpowers/
-docs
-
-# ─── Skill data persistence (runtime artifacts, not structure) ───────────────
+# ─── Skill data persistence (runtime artifacts) ─────────────────────────────
 skills/**/data/database/*.db
 skills/**/data/database/*.sqlite3
 skills/**/data/database/*.sqlite
@@ -25,9 +17,12 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
-# ─── OS / editor noise ───────────────────────────────────────────────────────
+# ─── OS / editor noise ──────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+.agents
+.claude
