@@ -61,7 +61,7 @@ This is a stdio MCP server. It is spawned by the MCP client, not started manuall
   "mcpServers": {
     "evm-agent-toolkit": {
       "command": "npx",
-      "args": ["-y", "evm-agent-toolkit"]
+      "args": ["-y", "@0xendale/evm-agent-toolkit"]
     }
   }
 }

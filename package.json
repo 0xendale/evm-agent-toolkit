@@ -1,5 +1,5 @@
 {
-  "name": "evm-agent-toolkit",
+  "name": "@0xendale/evm-agent-toolkit",
   "version": "1.0.0",
   "description": "MCP server for EVM security analysis, gas profiling, and transaction simulation",
   "main": "build/mcp/index.js",
