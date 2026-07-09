@@ -1,0 +1,29 @@
+{
+  "name": "evm-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for EVM security analysis, gas profiling, and transaction simulation",
+  "main": "build/mcp/index.js",
+  "type": "module",
+  "bin": {
+    "evm-mcp-server": "./build/mcp/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "npx tsx watch src/mcp/index.ts",
+    "clean": "rm -rf build",
+    "test": "vitest run",
+    "bench": "npx tsx bench/parser.bench.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

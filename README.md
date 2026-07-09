@@ -1,46 +1,92 @@
-# EVM Skills Hub
+# EVM MCP Server
 
-A public library of installable **EVM agent-skills**. Drop them into your AI
-coding agent and it can audit, optimize, and analyze EVM smart contracts.
+An MCP (Model Context Protocol) server that gives autonomous coding agents deterministic, schema-validated tools for EVM smart contract development — security scanning, gas profiling, compiler diagnostics, and transaction simulation.
 
-## Skills
+## Why This Exists
 
-| Skill | Use it when you want to… |
-|---|---|
-| [`gas-optimization`](skills/gas-optimization/SKILL.md) | Reduce gas; storage packing, calldata, unchecked math, transient storage — measured, not guessed. |
-| [`vulnerability-scanning`](skills/vulnerability-scanning/SKILL.md) | Get a severity-rated security audit (reentrancy, access control, delegatecall, SWC-mapped). |
-| [`arbitrage-analysis`](skills/arbitrage-analysis/SKILL.md) | Quantify DeFi arbitrage net of fees, gas, and slippage. |
+Raw CLI output from tools like Slither and Foundry is noisy, non-deterministic, and often causes LLMs to hallucinate. This server intercepts the output, validates it through Zod schemas, and returns clean JSON that any agent can reliably parse.
 
-## Install
+## Tools
 
-### Claude Code (plugin — recommended)
+| Tool | Annotations | Description |
+|------|-------------|-------------|
+| `evm_scan_vulnerabilities` | `readOnly`, `idempotent` | Run Slither analysis. Returns severity-rated findings with extracted code snippets. |
+| `evm_analyze_gas_profile` | `readOnly`, `idempotent` | Run `forge test --gas-report`. Returns structured per-function gas data. |
+| `evm_compile_and_diagnose` | `readOnly`, `idempotent` | Run `forge build`. Returns structured compiler diagnostics on failure. |
+| `evm_simulate_transaction` | `readOnly`, `idempotent` | Run `cast call`. Returns decoded return data or revert reasons. |
+
+## Resources
+
+| URI | Description |
+|-----|-------------|
+| `evm://patterns/vulnerabilities` | Security vulnerability pattern library |
+| `evm://gas/optimizations` | Gas optimization pattern library |
+| `evm://patterns/arbitrage` | Arbitrage strategy reference |
+
+## Architecture
+
+```text
+evm-agent-toolkit/
+├── src/
+│   ├── mcp/            # MCP server entry point (stdio transport)
+│   ├── tools/          # Zod-validated CLI output parsers
+│   │   ├── slither.ts  # Slither JSON → SanitizedFinding[]
+│   │   ├── forge.ts    # Forge gas tables → ContractGas[]
+│   │   ├── compiler.ts # Forge build errors → CompilerDiagnostic[]
+│   │   └── simulator.ts# Cast call output → SimulatorDiagnostic
+│   ├── rules/          # Agent system prompt injections
+│   └── hooks/          # Lifecycle hooks (UserPromptSubmit, Statusline)
+├── tests/              # Vitest unit tests for all parsers
+├── bench/              # Performance benchmarks
+├── evals/              # Agent evaluation framework (vulnerable contracts + eval XML)
+├── skills/             # Markdown reference libraries
+├── .claude-plugin/     # Claude Code plugin manifest
+└── gemini-extension.json # Antigravity plugin manifest
 ```
-/plugin marketplace add <owner>/evm-skills-hub
-/plugin install evm-skills-hub
-```
-All skills install together and update with the marketplace.
 
-### Any other agent runtime
-Each skill is a self-contained folder. Copy the one(s) you want into your
-runtime's skills directory:
+## Setup
+
 ```bash
-# example: into a project-local Claude skills dir
-cp -r skills/vulnerability-scanning ~/.claude/skills/
-# or the cross-runtime location read by Codex/Gemini/etc.
-cp -r skills/vulnerability-scanning ~/.agents/skills/
+npm install
+npm run build
 ```
-The skill activates when your agent matches a request to its `description`.
 
-## How a skill works
+## Agent Configuration
 
-Each skill drives a four-step workflow — **Seek → Innovate → Execute → Manage** —
-that your agent follows, invoking real tools (e.g. Slither, Foundry) via your
-shell when available and degrading gracefully when not. Skills are
-runtime-agnostic and self-contained.
+This is a stdio MCP server. It is spawned by the MCP client, not started manually.
 
-## Contributing
+**Claude Desktop / Cursor:**
+```json
+{
+  "mcpServers": {
+    "evm-mcp-server": {
+      "command": "node",
+      "args": ["/absolute/path/to/evm-agent-toolkit/build/mcp/index.js"]
+    }
+  }
+}
+```
 
-See [`AGENTS.md`](AGENTS.md) for the canonical skill format and how to add one.
+**Prerequisites:** `slither`, `forge`, and `cast` must be installed on the host machine.
+
+## Development
+
+```bash
+npm run dev       # Watch mode with tsx
+npm run test      # Run all unit tests
+npm run bench     # Run parser benchmarks
+npm run build     # Compile TypeScript → build/
+```
+
+## Performance
+
+Parser throughput (measured on Apple Silicon):
+
+| Parser | Iterations | Time | Per-call |
+|--------|-----------|------|----------|
+| Slither (100 detectors) | 1,000 | ~109ms | ~0.1ms |
+| Forge Gas Table | 10,000 | ~32ms | ~0.003ms |
 
 ## License
+
 MIT

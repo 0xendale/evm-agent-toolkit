@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<evaluation>
+  <qa_pair>
+    <question>Use the `evm_scan_vulnerabilities` tool on `evals/src/ReentrancyVault.sol`. What is the exact string value of the `check` field for the first vulnerability found by Slither?</question>
+    <answer>reentrancy-eth</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Use the `evm_scan_vulnerabilities` tool on `evals/src/ReentrancyVault.sol`. What is the severity level assigned to the reentrancy vulnerability?</question>
+    <answer>High</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Read the `evm://patterns/vulnerabilities` resource. What is the name of the primary pattern recommended to prevent reentrancy attacks?</question>
+    <answer>Checks-Effects-Interactions</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Read the `evm://gas/optimizations` resource. When reading a state variable multiple times inside a function, what technique is recommended to reduce gas costs?</question>
+    <answer>Caching State</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Read the `evm://gas/optimizations` resource. What keyword should be used for array and struct function parameters instead of `memory` to save gas when they are not mutated?</question>
+    <answer>calldata</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Use the `evm_compile_and_diagnose` tool on a non-existent project path like `/tmp/does-not-exist`. Does the tool successfully return a clean JSON diagnostic array instead of a raw CLI traceback? (Respond with "Yes" or "No")</question>
+    <answer>Yes</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Read the `evm://patterns/arbitrage` resource. What is the formula for calculating Net Profit in an arbitrage sequence?</question>
+    <answer>Net Profit = (Revenue) - (Swap Fees + Gas Costs)</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Use the `evm_simulate_transaction` tool with target `0x0000000000000000000000000000000000000000`, signature `fake()`, and an invalid RPC URL. Does the tool successfully catch the error and return a JSON object with `success: false`?</question>
+    <answer>Yes</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Review the `ReentrancyVault.sol` file in `evals/src/`. What specific line of code violates the CEI pattern by making an external call before updating the balances state?</question>
+    <answer>(bool success, ) = msg.sender.call{value: bal}("");</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>What is the name of the modifier provided by OpenZeppelin that can be used as a secondary defense mechanism against reentrancy, as mentioned in standard EVM security practices?</question>
+    <answer>nonReentrant</answer>
+  </qa_pair>
+</evaluation>

@@ -1,0 +1,6 @@
+{
+  "name": "evm-mcp-server",
+  "description": "EVM autonomous agent tools — security scanning, gas profiling, compiler diagnostics, and transaction simulation via MCP.",
+  "version": "1.0.0",
+  "contextFileName": "GEMINI.md"
+}

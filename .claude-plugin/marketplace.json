@@ -1,0 +1,14 @@
+{
+  "name": "evm-agent-toolkit",
+  "owner": { 
+    "name": "0xendale",
+    "url": "https://github.com/0xendale"
+   },
+  "plugins": [
+    {
+      "name": "evm-agent-toolkit",
+      "source": "./",
+      "description": "EVM agent-skills: gas optimization, vulnerability scanning, arbitrage analysis."
+    }
+  ]
+}

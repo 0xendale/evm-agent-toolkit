@@ -1,59 +1,69 @@
-# EVM Skills Hub — Contributor & Authoring Guide
+# EVM MCP Server — Contributor & Architecture Guide
 
-This file orients any agent (or human) working **inside this repository** to add
-or maintain skills. It is *not* shipped to users who install a skill — they
-receive only the `skills/<name>/` folder. So optimize end-user experience in each
-skill's own `SKILL.md`; optimize authoring here.
+This file orients any agent (or human) working **inside this repository**.
 
 ## What this repo is
 
-A public library of self-contained EVM agent-skills. Each skill installs into any
-agent runtime (Claude Code via the plugin, or any runtime that reads the Agent
-Skills convention) by copying its folder.
+A professional MCP (Model Context Protocol) server that gives autonomous coding
+agents deterministic, schema-validated tools for EVM smart contract development.
 
-## The canonical skill format
-
-Every skill is a folder under `skills/`:
+## Architecture
 
 ```
-skills/<name>/
-├── SKILL.md            # frontmatter (name + description only) + agent-followable body
-└── reference/          # distilled, self-contained reference files
+evm-agent-toolkit/
+├── src/
+│   ├── mcp/index.ts        # MCP server entry point (registerTool API)
+│   ├── tools/              # Zod-validated CLI output parsers
+│   ├── rules/              # System prompt injection files (.md)
+│   └── hooks/              # Lifecycle hooks (UserPromptSubmit, Statusline)
+├── tests/                  # Vitest unit tests for all parsers
+├── bench/                  # Parser performance benchmarks
+├── evals/                  # Agent evaluation framework
+├── skills/                 # Markdown reference libraries (read-only knowledge base)
+├── docs/                   # Design documents and proposals
+├── .claude-plugin/         # Claude Code plugin manifest
+├── gemini-extension.json   # Antigravity plugin manifest
+├── package.json            # npm package: evm-mcp-server
+└── tsconfig.json           # Strict TypeScript, ESM, declarations enabled
 ```
 
-Rules (enforced by `scripts/validate_skills.py`):
-- Frontmatter has exactly `name` and `description`. `name` is kebab-case and
-  equals the folder name. `description` is third-person, starts `Use when`,
-  states only *triggering conditions* (no workflow summary). Total < 1024 chars.
-- The body is instructions an agent reads and acts on — runtime-agnostic
-  ("run `slither …` in your shell", never a host-specific tool name).
-- Heavy reference material goes in `reference/`, kept self-contained so the skill
-  works when installed alone.
-- No `scripts/` and no `data/database/`. Pattern data is prose/tables in `reference/`.
+## Key conventions
 
-Skill body convention: an **Iron Rule**, **When to use / not**, a four-step
-**Seek → Innovate → Execute → Manage** workflow, **Verification**, **Quick
-Reference**, **Common Mistakes**, **Red Flags**.
+### Naming
+- **Server**: `evm-mcp-server` (convention: `{service}-mcp-server`)
+- **Tools**: `evm_{action}_{resource}` (e.g., `evm_scan_vulnerabilities`)
 
-## How to add a skill
+### API
+- Use `server.registerTool()` — **never** `server.tool()` (deprecated)
+- Every tool must have `title`, `description`, `inputSchema` (Zod), and `annotations`
+- Use `z.looseObject()` — **never** `.passthrough()` (deprecated in Zod v4)
+- Use `z.unknown()` — **never** `z.any()` (deprecated in Zod v4)
+- Use `catch (error: unknown)` — **never** `catch (error: any)`
+- All logging goes to `stderr` — stdio servers must never write to stdout
+- Tool errors return `isError: true`
 
-1. `mkdir -p skills/<name>/reference`.
-2. Write `SKILL.md` per the format above; put pattern libraries in `reference/`.
-3. Run `python3 scripts/validate_skills.py` — must print OK.
-4. Add the skill to the catalog in `README.md`.
-5. Bump `version` in `.claude-plugin/plugin.json` if releasing.
+### Build
+- `npm run build` must pass with zero errors before any commit
+- `npm run test` must pass all parser tests
+- Output goes to `build/` (gitignored)
 
-## The public/private boundary
+## What to edit
 
-Tracked (shipped): `skills/`, `README.md`, `AGENTS.md`, `.claude-plugin/`,
-`scripts/`. **No-dead-link invariant:** a tracked file may reference only tracked
-paths. The validator fails the build if a tracked file points at a private path.
+| I want to change...                | Edit this |
+|-------------------------------------|-----------|
+| Add/modify an MCP tool              | `src/mcp/index.ts` + parser in `src/tools/` |
+| Add a new CLI parser                | `src/tools/{name}.ts` + test in `tests/{name}.test.ts` |
+| Change agent behavior rules         | `src/rules/*.md` |
+| Change lifecycle hooks              | `src/hooks/*.ts` |
+| Add reference knowledge             | `skills/{name}/reference/*.md` |
+| Update eval questions               | `evals/mcp_eval.xml` |
+| Update plugin manifests             | `.claude-plugin/plugin.json` or `gemini-extension.json` |
 
-Private authoring material (personas, research notes) is git-ignored and lives
-outside the tracked set; it is never referenced from any tracked file.
+## How to add a new tool
 
-## Verification gate
-
-A skill is "done" only after `scripts/validate_skills.py` passes AND a
-baseline-vs-with-skill behavior check shows the skill changes agent behavior
-(see superpowers:writing-skills).
+1. Create `src/tools/{name}.ts` with a Zod-validated parser function.
+2. Create `tests/{name}.test.ts` with at least 3 test cases.
+3. Register in `src/mcp/index.ts` via `server.registerTool()` with full metadata.
+4. Run `npm run build && npm run test`.
+5. Update `evals/mcp_eval.xml` with eval questions for the new tool.
+6. Bump `version` in `package.json` and `.claude-plugin/plugin.json`.
