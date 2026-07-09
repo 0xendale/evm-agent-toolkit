@@ -2,11 +2,6 @@
 /build
 /node_modules
 
-# ─── Skill data persistence (runtime artifacts) ─────────────────────────────
-skills/**/data/database/*.db
-skills/**/data/database/*.sqlite3
-skills/**/data/database/*.sqlite
-
 # ─── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
@@ -24,5 +19,4 @@ Thumbs.db
 .idea/
 .vscode/
 
-.agents
-.claude
+.env

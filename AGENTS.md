@@ -23,14 +23,14 @@ evm-agent-toolkit/
 ├── docs/                   # Design documents and proposals
 ├── .claude-plugin/         # Claude Code plugin manifest
 ├── gemini-extension.json   # Antigravity plugin manifest
-├── package.json            # npm package: evm-mcp-server
+├── package.json            # npm package: evm-agent-toolkit
 └── tsconfig.json           # Strict TypeScript, ESM, declarations enabled
 ```
 
 ## Key conventions
 
 ### Naming
-- **Server**: `evm-mcp-server` (convention: `{service}-mcp-server`)
+- **Server**: `evm-agent-toolkit`
 - **Tools**: `evm_{action}_{resource}` (e.g., `evm_scan_vulnerabilities`)
 
 ### API

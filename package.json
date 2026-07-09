@@ -1,11 +1,15 @@
 {
-  "name": "evm-mcp-server",
+  "name": "evm-agent-toolkit",
   "version": "1.0.0",
   "description": "MCP server for EVM security analysis, gas profiling, and transaction simulation",
   "main": "build/mcp/index.js",
   "type": "module",
+  "files": [
+    "build",
+    "skills"
+  ],
   "bin": {
-    "evm-mcp-server": "./build/mcp/index.js"
+    "evm-agent-toolkit": "./build/mcp/index.js"
   },
   "engines": {
     "node": ">=18"

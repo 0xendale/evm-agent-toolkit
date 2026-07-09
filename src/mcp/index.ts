@@ -7,7 +7,7 @@
  * transaction simulation tools via the Model Context Protocol.
  *
  * Transport: stdio (spawned by the MCP client)
- * Naming: evm-mcp-server (per MCP convention: {service}-mcp-server)
+ * Naming: evm-agent-toolkit
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -43,7 +43,7 @@ function truncateIfNeeded(text: string): string {
 // Server
 // ---------------------------------------------------------------------------
 const server = new McpServer({
-  name: "evm-mcp-server",
+  name: "evm-agent-toolkit",
   version: "1.0.0",
 });
 
@@ -486,7 +486,7 @@ server.resource(
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("evm-mcp-server running on stdio");
+  console.error("evm-agent-toolkit running on stdio");
 }
 
 main().catch((err) => {
