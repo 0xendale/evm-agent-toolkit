@@ -1,5 +1,5 @@
 {
-  "name": "evm-mcp-server",
+  "name": "evm-agent-toolkit",
   "version": "1.0.0",
   "description": "MCP server for EVM security analysis, gas profiling, compiler diagnostics, and transaction simulation. Provides autonomous coding agents with deterministic, schema-validated tools for Ethereum smart contract development.",
   "author": {

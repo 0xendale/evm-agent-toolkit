@@ -59,9 +59,9 @@ This is a stdio MCP server. It is spawned by the MCP client, not started manuall
 ```json
 {
   "mcpServers": {
-    "evm-mcp-server": {
-      "command": "node",
-      "args": ["/absolute/path/to/evm-agent-toolkit/build/mcp/index.js"]
+    "evm-agent-toolkit": {
+      "command": "npx",
+      "args": ["-y", "evm-agent-toolkit"]
     }
   }
 }
