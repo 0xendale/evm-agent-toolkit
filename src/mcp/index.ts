@@ -29,6 +29,9 @@ import {
   CompilerDiagnosticSchema,
 } from "../tools/compiler.js";
 import { parseCastCallOutput, SimulatorDiagnosticSchema } from "../tools/simulator.js";
+import { parseForgeStorageLayout, StorageEntrySchema } from "../tools/storage.js";
+import { parseCastTrace, TraceEventSchema } from "../tools/trace.js";
+import { parseCastDecodeOutput } from "../tools/decoder.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -123,6 +126,7 @@ Args:
   - contractPath (string): Absolute path to the Solidity file or Foundry project root
   - severityFilter (string[], optional): Only return findings at these severities ("High" | "Medium" | "Low" | "Informational")
   - maxFindings (number, optional): Cap the number of findings returned (default: all)
+  - detectors (string[], optional): Run only these Slither detector ids (e.g. ["reentrancy-eth", "arbitrary-send-eth"]) for a focused scan
 
 Returns:
   JSON object:
@@ -165,6 +169,17 @@ Error Handling:
         .min(1)
         .optional()
         .describe("Cap the number of findings returned"),
+      detectors: z
+        .array(
+          z
+            .string()
+            .regex(
+              /^[a-z0-9-]+$/,
+              "detector ids are lowercase kebab-case, e.g. 'reentrancy-eth'"
+            )
+        )
+        .optional()
+        .describe("Run only these Slither detector ids"),
     },
     outputSchema: {
       findings: z.array(SanitizedFindingSchema),
@@ -182,10 +197,12 @@ Error Handling:
     contractPath,
     severityFilter,
     maxFindings,
+    detectors,
   }: {
     contractPath: string;
     severityFilter?: (typeof SEVERITY_LEVELS)[number][];
     maxFindings?: number;
+    detectors?: string[];
   }) => {
     if (!fs.existsSync(contractPath)) {
       return errorResult(
@@ -200,11 +217,14 @@ Error Handling:
 
     let rawJsonOutput = "";
     try {
-      const { stdout } = await execFileAsync(
-        "slither",
-        [contractPath, "--json", "-"],
-        { cwd: projectRoot, maxBuffer: MAX_BUFFER }
-      );
+      const slitherArgs = [contractPath, "--json", "-"];
+      if (detectors && detectors.length > 0) {
+        slitherArgs.push("--detect", detectors.join(","));
+      }
+      const { stdout } = await execFileAsync("slither", slitherArgs, {
+        cwd: projectRoot,
+        maxBuffer: MAX_BUFFER,
+      });
       rawJsonOutput = stdout;
     } catch (error: unknown) {
       // Slither exits non-zero when findings exist; the JSON is still on stdout.
@@ -560,6 +580,340 @@ Error Handling:
       ],
       structuredContent: parsedResult,
     };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Tool 5: evm_inspect_storage_layout
+// ---------------------------------------------------------------------------
+server.registerTool(
+  "evm_inspect_storage_layout",
+  {
+    title: "Inspect Contract Storage Layout",
+    description: `Run forge inspect <contract> storage-layout and return the resolved storage slot assignment for every state variable.
+
+Essential for proxy-upgrade safety checks (storage-layout collisions) and storage-packing gas analysis.
+
+Args:
+  - projectPath (string): Absolute path to the Foundry project root
+  - contractName (string): Contract name (e.g. "Token") or fully qualified name (e.g. "src/Token.sol:Token")
+
+Returns:
+  JSON object:
+  {
+    "entries": [
+      {
+        "label": string,   // State variable name
+        "slot": number,    // Storage slot index
+        "offset": number,  // Byte offset within the slot
+        "type": string,    // Human-readable type (e.g. "address", "mapping(address => uint256)")
+        "bytes": number    // Size of the variable in bytes
+      }
+    ]
+  }
+
+Examples:
+  - "Check storage layout of my proxy implementation" → contractName = "TokenV2"
+  - "Will upgrading V1 to V2 corrupt storage?" → call once per contract, compare entries
+
+Error Handling:
+  - Returns isError=true if forge is not installed, the project path is invalid, or the contract is not found`,
+    inputSchema: {
+      projectPath: z
+        .string()
+        .min(1, "projectPath is required")
+        .describe("Absolute path to the Foundry project root"),
+      contractName: z
+        .string()
+        .regex(
+          /^[A-Za-z0-9_./:-]+$/,
+          "contractName may contain only letters, digits, and _ . / : -"
+        )
+        .describe(
+          "Contract name (e.g. 'Token') or fully qualified name (e.g. 'src/Token.sol:Token')"
+        ),
+    },
+    outputSchema: {
+      entries: z.array(StorageEntrySchema),
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({
+    projectPath,
+    contractName,
+  }: {
+    projectPath: string;
+    contractName: string;
+  }) => {
+    if (!fs.existsSync(projectPath)) {
+      return errorResult(
+        `Error: projectPath does not exist: ${projectPath}. Provide an absolute path to a Foundry project root.`
+      );
+    }
+    try {
+      const { stdout } = await execFileAsync(
+        "forge",
+        ["inspect", contractName, "storage-layout", "--json"],
+        { cwd: projectPath, maxBuffer: MAX_BUFFER }
+      );
+      const parsedResult = parseForgeStorageLayout(stdout);
+      if (!parsedResult.success) {
+        return errorResult(`Error: ${parsedResult.error}`);
+      }
+      const payload = { entries: parsedResult.entries ?? [] };
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: truncateIfNeeded(JSON.stringify(payload, null, 2)),
+          },
+        ],
+        structuredContent: payload,
+      };
+    } catch (error: unknown) {
+      if (isEnoent(error)) {
+        return errorResult(
+          "Error: Forge not found. Install Foundry: curl -L https://foundry.paradigm.xyz | bash"
+        );
+      }
+      const err = error as { message?: string; stderr?: string };
+      return errorResult(
+        `Error: forge inspect failed. Check that the contract name exists in the project. ${err.stderr ?? err.message ?? ""}`
+      );
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Tool 6: evm_trace_call
+// ---------------------------------------------------------------------------
+server.registerTool(
+  "evm_trace_call",
+  {
+    title: "Trace EVM Call",
+    description: `Execute a read-only call with cast call --trace and return the structured call tree: every internal call, its gas cost, call type, return values, emitted events, and revert frames.
+
+Use this to verify exploit reachability, inspect cross-contract call flows, or debug unexpected reverts. This tool does NOT submit a real transaction.
+
+Args:
+  - target (string): Target contract address (0x-prefixed, 42 chars)
+  - signature (string): Function signature, e.g. "withdraw(uint256)"
+  - args (string, optional): Space-separated arguments for the function call
+  - rpcUrl (string): JSON-RPC endpoint URL (e.g. http://localhost:8545)
+
+Returns:
+  JSON object:
+  {
+    "reverted": boolean,        // true if any frame reverted
+    "gasUsed": number,          // Total gas used (when reported)
+    "events": [
+      {
+        "depth": number,        // Nesting depth in the call tree (0 = top frame)
+        "kind": string,         // "call" | "return" | "stop" | "revert" | "emit"
+        "gas": number,          // Gas for call frames
+        "target": string,       // Callee address or label
+        "call": string,         // Function + arguments
+        "callType": string,     // "staticcall" | "delegatecall" | undefined (regular call)
+        "value": string         // Return data, revert reason, or event payload
+      }
+    ]
+  }
+
+Examples:
+  - "Why does withdraw() revert?" → trace it, read the deepest revert frame
+  - "Does transfer() call an external contract?" → look for depth > 0 call events
+
+Error Handling:
+  - Returns isError=true if cast is not installed, the RPC is unreachable, or no trace was produced`,
+    inputSchema: {
+      target: z
+        .string()
+        .regex(
+          /^0x[0-9a-fA-F]{40}$/,
+          "target must be a 0x-prefixed 20-byte hex address"
+        )
+        .describe("Target contract address (0x-prefixed, 42 chars)"),
+      signature: z
+        .string()
+        .min(1, "function signature is required")
+        .describe("Function signature, e.g. 'withdraw(uint256)'"),
+      args: z
+        .string()
+        .optional()
+        .describe("Space-separated arguments for the function call"),
+      rpcUrl: z
+        .url({ error: "rpcUrl must be a valid URL" })
+        .describe("JSON-RPC endpoint URL"),
+    },
+    outputSchema: {
+      reverted: z.boolean(),
+      gasUsed: z.number().optional(),
+      events: z.array(TraceEventSchema),
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async ({
+    target,
+    signature,
+    args,
+    rpcUrl,
+  }: {
+    target: string;
+    signature: string;
+    args?: string;
+    rpcUrl: string;
+  }) => {
+    const argTokens = (args ?? "").split(/\s+/).filter((t) => t.length > 0);
+    let rawOutput = "";
+    try {
+      const { stdout } = await execFileAsync(
+        "cast",
+        ["call", target, signature, ...argTokens, "--trace", "--rpc-url", rpcUrl],
+        { maxBuffer: MAX_BUFFER }
+      );
+      rawOutput = stdout;
+    } catch (error: unknown) {
+      if (isEnoent(error)) {
+        return errorResult(
+          "Error: cast not found. Install Foundry: curl -L https://foundry.paradigm.xyz | bash"
+        );
+      }
+      // Reverted calls exit non-zero but still print the trace.
+      const err = error as { stdout?: string; stderr?: string; message?: string };
+      if (err.stdout && err.stdout.includes("Traces:")) {
+        rawOutput = err.stdout;
+      } else {
+        return errorResult(
+          `Error: cast call --trace failed. Check the RPC endpoint. ${err.message ?? err.stderr ?? ""}`
+        );
+      }
+    }
+
+    const parsedResult = parseCastTrace(rawOutput);
+    if (!parsedResult.success) {
+      return errorResult(`Error: ${parsedResult.error}`);
+    }
+    const payload = {
+      reverted: parsedResult.reverted ?? false,
+      gasUsed: parsedResult.gasUsed,
+      events: parsedResult.events ?? [],
+    };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: truncateIfNeeded(JSON.stringify(payload, null, 2)),
+        },
+      ],
+      structuredContent: payload,
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Tool 7: evm_decode_calldata
+// ---------------------------------------------------------------------------
+server.registerTool(
+  "evm_decode_calldata",
+  {
+    title: "Decode EVM Calldata",
+    description: `Decode hex calldata into a function signature and typed argument values using Foundry cast.
+
+If you know the function signature, pass it for a fully offline, deterministic decode (cast calldata-decode). Without a signature, the 4-byte selector is resolved via the openchain.xyz signature database (cast 4byte-decode) — requires network access.
+
+Args:
+  - calldata (string): Hex-encoded calldata (0x-prefixed, at least the 4-byte selector)
+  - signature (string, optional): Known function signature, e.g. "transfer(address,uint256)"
+
+Returns:
+  JSON object:
+  {
+    "success": boolean,
+    "signature": string,   // Resolved or provided function signature
+    "values": string[]     // Decoded argument values, one per parameter
+  }
+
+Examples:
+  - "What does this pending tx do?" → calldata = "0xa9059cbb000...", no signature
+  - "Decode this transfer call" → calldata + signature = "transfer(address,uint256)"
+
+Error Handling:
+  - Returns isError=true if cast is not installed, the calldata is malformed, or the selector is unknown`,
+    inputSchema: {
+      calldata: z
+        .string()
+        .regex(
+          /^0x[0-9a-fA-F]{8,}$/,
+          "calldata must be 0x-prefixed hex with at least a 4-byte selector"
+        )
+        .describe("Hex-encoded calldata (0x-prefixed)"),
+      signature: z
+        .string()
+        .optional()
+        .describe(
+          "Known function signature for offline decoding, e.g. 'transfer(address,uint256)'"
+        ),
+    },
+    outputSchema: {
+      success: z.boolean(),
+      signature: z.string().optional(),
+      values: z.array(z.string()).optional(),
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async ({
+    calldata,
+    signature,
+  }: {
+    calldata: string;
+    signature?: string;
+  }) => {
+    const castArgs = signature
+      ? ["calldata-decode", signature, calldata]
+      : ["4byte-decode", calldata];
+    try {
+      const { stdout } = await execFileAsync("cast", castArgs, {
+        maxBuffer: MAX_BUFFER,
+      });
+      const parsedResult = parseCastDecodeOutput(stdout, signature);
+      if (!parsedResult.success) {
+        return errorResult(`Error: ${parsedResult.error}`);
+      }
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(parsedResult, null, 2),
+          },
+        ],
+        structuredContent: parsedResult,
+      };
+    } catch (error: unknown) {
+      if (isEnoent(error)) {
+        return errorResult(
+          "Error: cast not found. Install Foundry: curl -L https://foundry.paradigm.xyz | bash"
+        );
+      }
+      const err = error as { message?: string; stderr?: string };
+      return errorResult(
+        `Error: calldata decode failed. ${signature ? "Check the signature matches the calldata." : "Selector may be unknown to the signature database; provide a signature for offline decoding."} ${err.stderr ?? err.message ?? ""}`
+      );
+    }
   }
 );
 
