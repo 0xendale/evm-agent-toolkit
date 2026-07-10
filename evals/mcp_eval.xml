@@ -40,4 +40,20 @@
     <question>What is the name of the modifier provided by OpenZeppelin that can be used as a secondary defense mechanism against reentrancy, as mentioned in standard EVM security practices?</question>
     <answer>nonReentrant</answer>
   </qa_pair>
+  <qa_pair>
+    <question>Use the `evm_decode_calldata` tool with signature `transfer(address,uint256)` and calldata `0xa9059cbb000000000000000000000000ab5801a7d398351b8be11c439e05c5b3259aec9b0000000000000000000000000000000000000000000000056bc75e2d63100000`. What is the checksummed address in the first decoded value?</question>
+    <answer>0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Use the `evm_trace_call` tool with target `0x0000000000000000000000000000000000000001`, signature `fake()`, and an unreachable RPC URL like `http://127.0.0.1:59999`. Does the tool return an isError response with an actionable message mentioning the RPC endpoint instead of a raw CLI traceback? (Respond with "Yes" or "No")</question>
+    <answer>Yes</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Use the `evm_inspect_storage_layout` tool with a non-existent projectPath like `/tmp/does-not-exist` and contractName `Vault`. Does the tool reject the request with an isError response stating the projectPath does not exist? (Respond with "Yes" or "No")</question>
+    <answer>Yes</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>List the prompts exposed by the evm-agent-toolkit MCP server. Which prompt name corresponds to the severity-rated security audit workflow?</question>
+    <answer>audit_contract</answer>
+  </qa_pair>
 </evaluation>

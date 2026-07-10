@@ -1,7 +1,30 @@
 {
   "name": "@0xendale/evm-agent-toolkit",
-  "version": "1.0.0",
-  "description": "MCP server for EVM security analysis, gas profiling, and transaction simulation",
+  "version": "1.1.0",
+  "description": "MCP server for EVM security analysis, gas profiling, compiler diagnostics, transaction simulation, call tracing, and Foundry test orchestration — deterministic, schema-validated tools for autonomous coding agents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xendale/evm-agent-toolkit.git"
+  },
+  "homepage": "https://github.com/0xendale/evm-agent-toolkit#readme",
+  "bugs": {
+    "url": "https://github.com/0xendale/evm-agent-toolkit/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "evm",
+    "ethereum",
+    "solidity",
+    "slither",
+    "foundry",
+    "forge",
+    "security",
+    "gas-optimization",
+    "smart-contracts",
+    "autonomous-agents"
+  ],
   "main": "build/mcp/index.js",
   "type": "module",
   "files": [

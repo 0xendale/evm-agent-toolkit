@@ -10,10 +10,15 @@ Raw CLI output from tools like Slither and Foundry is noisy, non-deterministic, 
 
 | Tool | Annotations | Description |
 |------|-------------|-------------|
-| `evm_scan_vulnerabilities` | `readOnly`, `idempotent` | Run Slither analysis. Returns severity-rated findings with extracted code snippets. |
+| `evm_scan_vulnerabilities` | `readOnly`, `idempotent` | Run Slither analysis. Returns severity-rated findings with extracted code snippets. Supports `severityFilter` and `maxFindings`. |
 | `evm_analyze_gas_profile` | `readOnly`, `idempotent` | Run `forge test --gas-report`. Returns structured per-function gas data. |
 | `evm_compile_and_diagnose` | `readOnly`, `idempotent` | Run `forge build`. Returns structured compiler diagnostics on failure. |
 | `evm_simulate_transaction` | `readOnly`, `idempotent` | Run `cast call`. Returns decoded return data or revert reasons. |
+| `evm_inspect_storage_layout` | `readOnly`, `idempotent` | Run `forge inspect storage-layout`. Returns slot/offset/type per state variable — proxy-collision and packing checks. |
+| `evm_trace_call` | `readOnly`, `idempotent` | Run `cast call --trace`. Returns structured call tree with gas, call types, events, and revert frames. |
+| `evm_decode_calldata` | `readOnly`, `idempotent` | Decode hex calldata via `cast calldata-decode` (offline with signature) or `cast 4byte-decode` (selector lookup). |
+| `evm_run_tests` | `readOnly` | Run `forge test` (optional `matchTest`/`matchPath`). Returns per-suite results with gas, fuzz runs, and failure counterexamples. |
+| `evm_toolchain_versions` | `readOnly`, `idempotent` | Report installed/missing status and exact versions of `slither`, `forge`, `cast`. |
 
 ## Resources
 
@@ -22,6 +27,16 @@ Raw CLI output from tools like Slither and Foundry is noisy, non-deterministic, 
 | `evm://patterns/vulnerabilities` | Security vulnerability pattern library |
 | `evm://gas/optimizations` | Gas optimization pattern library |
 | `evm://patterns/arbitrage` | Arbitrage strategy reference |
+
+## Prompts
+
+Skill workflows exposed as MCP prompts for clients without native skill support. Each embeds the full SKILL.md workflow.
+
+| Prompt | Args | Description |
+|--------|------|-------------|
+| `audit_contract` | `contractPath` | Severity-rated security audit (vulnerability-scanning workflow) |
+| `optimize_gas` | `projectPath` | Measured gas-optimization pass (gas-optimization workflow) |
+| `analyze_arbitrage` | `scenario` | Opportunity ledger net of fees/gas/slippage (arbitrage-analysis workflow) |
 
 ## Architecture
 
@@ -33,7 +48,12 @@ evm-agent-toolkit/
 │   │   ├── slither.ts  # Slither JSON → SanitizedFinding[]
 │   │   ├── forge.ts    # Forge gas tables → ContractGas[]
 │   │   ├── compiler.ts # Forge build errors → CompilerDiagnostic[]
-│   │   └── simulator.ts# Cast call output → SimulatorDiagnostic
+│   │   ├── simulator.ts# Cast call output → SimulatorDiagnostic
+│   │   ├── storage.ts  # Forge storage layout → StorageEntry[]
+│   │   ├── trace.ts    # Cast call traces → TraceEvent[]
+│   │   ├── decoder.ts  # Cast calldata decode → DecodedCalldata
+│   │   ├── testrunner.ts # Forge test output → TestSuite[]
+│   │   └── versions.ts # Toolchain --version output → ToolVersion
 │   ├── rules/          # Agent system prompt injections
 │   └── hooks/          # Lifecycle hooks (UserPromptSubmit, Statusline)
 ├── tests/              # Vitest unit tests for all parsers

@@ -32,9 +32,9 @@ Run these four steps in order. They are reasoning steps **you** perform, not scr
 
 A rewrite is accepted only if all three pass. If any fails, revert it.
 
-1. **Security** — Run `slither <path>` if available. The rewrite must not introduce reentrancy, uninitialized storage, unsafe `delegatecall`, or remove a needed check. Optimizations that touch `.call`/external calls or `unchecked` get extra scrutiny.
-2. **Equivalence** — Behavior must be identical for the same inputs. Prefer Foundry differential/fuzz tests (`forge test`, including boundary and randomized inputs). If no test suite exists, say so and reason explicitly about why behavior is preserved — do not silently assume it.
-3. **Measurement** — Gas must be **strictly lower**. Use `forge snapshot` and `forge test --gas-report` (or an equivalent harness). If gas is equal or higher, the pattern is invalid here — discard it.
+1. **Security** — Prefer the MCP tool `evm_scan_vulnerabilities`; fall back to raw `slither <path>` when the MCP server is unavailable. The rewrite must not introduce reentrancy, uninitialized storage, unsafe `delegatecall`, or remove a needed check. Optimizations that touch `.call`/external calls or `unchecked` get extra scrutiny.
+2. **Equivalence** — Behavior must be identical for the same inputs. Prefer Foundry differential/fuzz tests via the MCP tool `evm_run_tests` (structured pass/fail with fuzz counterexamples; falls back to raw `forge test`), including boundary and randomized inputs. If no test suite exists, say so and reason explicitly about why behavior is preserved — do not silently assume it.
+3. **Measurement** — Gas must be **strictly lower**. Prefer the MCP tool `evm_analyze_gas_profile` (structured per-function min/avg/median/max); fall back to `forge snapshot` and `forge test --gas-report`. For storage-packing rewrites, verify the new slot assignment with `evm_inspect_storage_layout`. If gas is equal or higher, the pattern is invalid here — discard it.
 
 **Graceful degradation:** if Slither/Foundry aren't installed, state that explicitly in the report, fall back to careful manual reasoning from the cost model, and mark the saving as *estimated, not measured*. Never present an estimate as a measurement.
 
