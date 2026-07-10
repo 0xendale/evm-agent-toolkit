@@ -10,7 +10,7 @@ Raw CLI output from tools like Slither and Foundry is noisy, non-deterministic, 
 
 | Tool | Annotations | Description |
 |------|-------------|-------------|
-| `evm_scan_vulnerabilities` | `readOnly`, `idempotent` | Run Slither analysis. Returns severity-rated findings with extracted code snippets. |
+| `evm_scan_vulnerabilities` | `readOnly`, `idempotent` | Run Slither analysis. Returns severity-rated findings with extracted code snippets. Supports `severityFilter` and `maxFindings`. |
 | `evm_analyze_gas_profile` | `readOnly`, `idempotent` | Run `forge test --gas-report`. Returns structured per-function gas data. |
 | `evm_compile_and_diagnose` | `readOnly`, `idempotent` | Run `forge build`. Returns structured compiler diagnostics on failure. |
 | `evm_simulate_transaction` | `readOnly`, `idempotent` | Run `cast call`. Returns decoded return data or revert reasons. |

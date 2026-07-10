@@ -15,19 +15,37 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import fs from "node:fs";
 import path from "node:path";
-import { exec } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { parseSlitherOutput } from "../tools/slither.js";
-import { parseForgeGasReport } from "../tools/forge.js";
-import { parseForgeBuildOutput } from "../tools/compiler.js";
-import { parseCastCallOutput } from "../tools/simulator.js";
+import {
+  parseSlitherOutput,
+  SanitizedFindingSchema,
+  type SanitizedFinding,
+} from "../tools/slither.js";
+import { parseForgeGasReport, ContractGasSchema } from "../tools/forge.js";
+import {
+  parseForgeBuildOutput,
+  CompilerDiagnosticSchema,
+} from "../tools/compiler.js";
+import { parseCastCallOutput, SimulatorDiagnosticSchema } from "../tools/simulator.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 const CHARACTER_LIMIT = 25_000;
+// Slither JSON on large projects can exceed the 1 MiB execFile default.
+const MAX_BUFFER = 16 * 1024 * 1024;
+
+// Package root resolved from the module location, NOT process.cwd() — when the
+// server is spawned via `npx -y @0xendale/evm-agent-toolkit`, cwd belongs to
+// the MCP client, not this package.
+const PKG_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../.."
+);
 
 function truncateIfNeeded(text: string): string {
   if (text.length > CHARACTER_LIMIT) {
@@ -37,6 +55,21 @@ function truncateIfNeeded(text: string): string {
     );
   }
   return text;
+}
+
+function errorResult(message: string) {
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: message }],
+  };
+}
+
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: string }).code === "ENOENT"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -50,6 +83,34 @@ const server = new McpServer({
 // ---------------------------------------------------------------------------
 // Tool 1: evm_scan_vulnerabilities
 // ---------------------------------------------------------------------------
+const SEVERITY_LEVELS = ["High", "Medium", "Low", "Informational"] as const;
+
+interface ScanPayload {
+  findings: SanitizedFinding[];
+  totalFindings: number;
+  truncated: boolean;
+  // SDK's structuredContent is typed as { [x: string]: unknown }
+  [key: string]: unknown;
+}
+
+/**
+ * Drop whole findings (never split one mid-JSON) until the serialized payload
+ * fits inside CHARACTER_LIMIT. Output is always valid JSON.
+ */
+function buildScanPayload(findings: SanitizedFinding[]): ScanPayload {
+  const totalFindings = findings.length;
+  const kept = [...findings];
+  let payload: ScanPayload = { findings: kept, totalFindings, truncated: false };
+  while (
+    kept.length > 0 &&
+    JSON.stringify(payload, null, 2).length > CHARACTER_LIMIT
+  ) {
+    kept.pop();
+    payload = { findings: kept, totalFindings, truncated: true };
+  }
+  return payload;
+}
+
 server.registerTool(
   "evm_scan_vulnerabilities",
   {
@@ -60,31 +121,55 @@ Each finding includes the detector name, severity, description, source file, lin
 
 Args:
   - contractPath (string): Absolute path to the Solidity file or Foundry project root
+  - severityFilter (string[], optional): Only return findings at these severities ("High" | "Medium" | "Low" | "Informational")
+  - maxFindings (number, optional): Cap the number of findings returned (default: all)
 
 Returns:
-  JSON array of findings, each with:
+  JSON object:
   {
-    "check": string,        // Slither detector id (e.g. "reentrancy-eth")
-    "severity": string,     // "High" | "Medium" | "Low" | "Informational"
-    "description": string,  // Human-readable explanation
-    "file": string,         // Relative path to the source file
-    "lines": number[],      // Affected line numbers (1-indexed)
-    "code_snippet": string  // Extracted source code from the file
+    "findings": [
+      {
+        "check": string,        // Slither detector id (e.g. "reentrancy-eth")
+        "severity": string,     // "High" | "Medium" | "Low" | "Informational"
+        "description": string,  // Human-readable explanation
+        "file": string,         // Relative path to the source file
+        "lines": number[],      // Affected line numbers (1-indexed)
+        "code_snippet": string  // Extracted source code from the file
+      }
+    ],
+    "totalFindings": number,    // Total before truncation/capping
+    "truncated": boolean        // true if findings were dropped to fit the response limit
   }
 
 Examples:
   - "Audit src/Vault.sol for reentrancy" → contractPath = "/path/to/src/Vault.sol"
   - "Run security scan on my Foundry project" → contractPath = "/path/to/project"
+  - "Only high-severity issues" → severityFilter = ["High"]
   - Do NOT use for gas analysis (use evm_analyze_gas_profile instead)
 
 Error Handling:
-  - Returns isError=true if Slither is not installed or crashes
-  - Returns empty array if no vulnerabilities found`,
+  - Returns isError=true if the path does not exist or Slither is not installed/crashes
+  - Returns empty findings array if no vulnerabilities found`,
     inputSchema: {
       contractPath: z
         .string()
         .min(1, "contractPath is required")
         .describe("Absolute path to the Solidity file or Foundry project root"),
+      severityFilter: z
+        .array(z.enum(SEVERITY_LEVELS))
+        .optional()
+        .describe("Only return findings at these severities"),
+      maxFindings: z
+        .number()
+        .int()
+        .min(1)
+        .optional()
+        .describe("Cap the number of findings returned"),
+    },
+    outputSchema: {
+      findings: z.array(SanitizedFindingSchema),
+      totalFindings: z.number(),
+      truncated: z.boolean(),
     },
     annotations: {
       readOnlyHint: true,
@@ -93,45 +178,78 @@ Error Handling:
       openWorldHint: false,
     },
   },
-  async ({ contractPath }: { contractPath: string }) => {
+  async ({
+    contractPath,
+    severityFilter,
+    maxFindings,
+  }: {
+    contractPath: string;
+    severityFilter?: (typeof SEVERITY_LEVELS)[number][];
+    maxFindings?: number;
+  }) => {
+    if (!fs.existsSync(contractPath)) {
+      return errorResult(
+        `Error: contractPath does not exist: ${contractPath}. Provide an absolute path to a Solidity file or Foundry project root.`
+      );
+    }
+    // Snippet extraction root: Slither reports filename_relative against its
+    // working directory, so run it from the project root and reuse that root.
+    const projectRoot = fs.statSync(contractPath).isDirectory()
+      ? contractPath
+      : path.dirname(contractPath);
+
     let rawJsonOutput = "";
     try {
-      const { stdout } = await execAsync(`slither ${contractPath} --json -`);
+      const { stdout } = await execFileAsync(
+        "slither",
+        [contractPath, "--json", "-"],
+        { cwd: projectRoot, maxBuffer: MAX_BUFFER }
+      );
       rawJsonOutput = stdout;
     } catch (error: unknown) {
+      // Slither exits non-zero when findings exist; the JSON is still on stdout.
       const err = error as { stdout?: string; message?: string };
       if (err.stdout) {
         rawJsonOutput = err.stdout;
+      } else if (isEnoent(error)) {
+        return errorResult(
+          "Error: Slither not found. Install with: pip3 install slither-analyzer"
+        );
       } else {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text" as const,
-              text: `Error: Slither not found or crashed. Install with: pip3 install slither-analyzer. Details: ${err.message ?? "unknown"}`,
-            },
-          ],
-        };
+        return errorResult(
+          `Error: Slither crashed. Details: ${err.message ?? "unknown"}`
+        );
       }
     }
 
-    const parsedResult = parseSlitherOutput(rawJsonOutput, process.cwd());
+    const parsedResult = parseSlitherOutput(rawJsonOutput, projectRoot);
     if (!parsedResult.success) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: "text" as const,
-            text: `Error: Failed to parse Slither output. ${parsedResult.error}`,
-          },
-        ],
-      };
+      return errorResult(
+        `Error: Failed to parse Slither output. ${parsedResult.error}`
+      );
     }
 
-    const text = truncateIfNeeded(
-      JSON.stringify(parsedResult.findings, null, 2)
-    );
-    return { content: [{ type: "text" as const, text }] };
+    let findings = parsedResult.findings ?? [];
+    if (severityFilter && severityFilter.length > 0) {
+      const allowed = new Set<string>(severityFilter);
+      findings = findings.filter((f) => allowed.has(f.severity));
+    }
+    const totalBeforeCap = findings.length;
+    if (maxFindings !== undefined && findings.length > maxFindings) {
+      findings = findings.slice(0, maxFindings);
+    }
+
+    const payload = buildScanPayload(findings);
+    payload.totalFindings = totalBeforeCap;
+    payload.truncated =
+      payload.truncated || totalBeforeCap > payload.findings.length;
+
+    return {
+      content: [
+        { type: "text" as const, text: JSON.stringify(payload, null, 2) },
+      ],
+      structuredContent: payload,
+    };
   }
 );
 
@@ -148,19 +266,23 @@ Args:
   - projectPath (string): Absolute path to a Foundry project (must contain foundry.toml)
 
 Returns:
-  JSON array of contracts, each with:
+  JSON object:
   {
-    "name": string,           // e.g. "src/Token.sol:Token"
-    "deploymentCost": number, // Gas used for deployment
-    "deploymentSize": number, // Bytecode size in bytes
-    "functions": [
+    "contracts": [
       {
-        "name": string,       // Function name
-        "min": number,        // Minimum gas
-        "avg": number,        // Average gas
-        "median": number,     // Median gas
-        "max": number,        // Maximum gas
-        "calls": number       // Number of calls in tests
+        "name": string,           // e.g. "src/Token.sol:Token"
+        "deploymentCost": number, // Gas used for deployment
+        "deploymentSize": number, // Bytecode size in bytes
+        "functions": [
+          {
+            "name": string,       // Function name
+            "min": number,        // Minimum gas
+            "avg": number,        // Average gas
+            "median": number,     // Median gas
+            "max": number,        // Maximum gas
+            "calls": number       // Number of calls in tests
+          }
+        ]
       }
     ]
   }
@@ -177,6 +299,9 @@ Error Handling:
         .min(1, "projectPath is required")
         .describe("Absolute path to the Foundry project root"),
     },
+    outputSchema: {
+      contracts: z.array(ContractGasSchema),
+    },
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -185,39 +310,43 @@ Error Handling:
     },
   },
   async ({ projectPath }: { projectPath: string }) => {
+    if (!fs.existsSync(projectPath)) {
+      return errorResult(
+        `Error: projectPath does not exist: ${projectPath}. Provide an absolute path to a Foundry project root.`
+      );
+    }
     try {
-      const { stdout } = await execAsync(`forge test --gas-report`, {
-        cwd: projectPath,
-      });
+      const { stdout } = await execFileAsync(
+        "forge",
+        ["test", "--gas-report"],
+        { cwd: projectPath, maxBuffer: MAX_BUFFER }
+      );
       const parsedResult = parseForgeGasReport(stdout);
 
       if (!parsedResult.success) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text" as const,
-              text: `Error: ${parsedResult.error}`,
-            },
-          ],
-        };
+        return errorResult(`Error: ${parsedResult.error}`);
       }
 
-      const text = truncateIfNeeded(
-        JSON.stringify(parsedResult.contracts, null, 2)
-      );
-      return { content: [{ type: "text" as const, text }] };
-    } catch (error: unknown) {
-      const err = error as { message?: string; stdout?: string };
+      const payload = { contracts: parsedResult.contracts ?? [] };
       return {
-        isError: true,
         content: [
           {
             type: "text" as const,
-            text: `Error: Forge execution failed. Ensure Foundry is installed (curl -L https://foundry.paradigm.xyz | bash). ${err.message ?? ""}\n${err.stdout ?? ""}`,
+            text: truncateIfNeeded(JSON.stringify(payload, null, 2)),
           },
         ],
+        structuredContent: payload,
       };
+    } catch (error: unknown) {
+      if (isEnoent(error)) {
+        return errorResult(
+          "Error: Forge not found. Install Foundry: curl -L https://foundry.paradigm.xyz | bash"
+        );
+      }
+      const err = error as { message?: string; stdout?: string };
+      return errorResult(
+        `Error: Forge execution failed. ${err.message ?? ""}\n${err.stdout ?? ""}`
+      );
     }
   }
 );
@@ -239,7 +368,7 @@ Args:
 
 Returns:
   {
-    "success": boolean,
+    "success": boolean,     // true if the project compiled cleanly
     "diagnostics": [
       {
         "file": string,      // e.g. "src/Token.sol"
@@ -263,6 +392,10 @@ Error Handling:
         .min(1, "projectPath is required")
         .describe("Absolute path to the Foundry project root"),
     },
+    outputSchema: {
+      success: z.boolean(),
+      diagnostics: z.array(CompilerDiagnosticSchema),
+    },
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -271,44 +404,49 @@ Error Handling:
     },
   },
   async ({ projectPath }: { projectPath: string }) => {
+    if (!fs.existsSync(projectPath)) {
+      return errorResult(
+        `Error: projectPath does not exist: ${projectPath}. Provide an absolute path to a Foundry project root.`
+      );
+    }
     try {
-      await execAsync(`forge build`, { cwd: projectPath });
+      await execFileAsync("forge", ["build"], {
+        cwd: projectPath,
+        maxBuffer: MAX_BUFFER,
+      });
+      const payload = { success: true, diagnostics: [] };
       return {
         content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(
-              { success: true, diagnostics: [] },
-              null,
-              2
-            ),
-          },
+          { type: "text" as const, text: JSON.stringify(payload, null, 2) },
         ],
+        structuredContent: payload,
       };
     } catch (error: unknown) {
+      if (isEnoent(error)) {
+        return errorResult(
+          "Error: Forge not found. Install Foundry: curl -L https://foundry.paradigm.xyz | bash"
+        );
+      }
       const err = error as { stdout?: string; message?: string };
       const parsedResult = parseForgeBuildOutput(
         err.stdout || err.message || ""
       );
 
       if (!parsedResult.success) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text" as const,
-              text: `Error: Could not parse compiler output. ${parsedResult.error}`,
-            },
-          ],
-        };
+        return errorResult(
+          `Error: Could not parse compiler output. ${parsedResult.error}`
+        );
       }
+      // Compilation failed — success reflects the build, not the parse.
+      const payload = {
+        success: false,
+        diagnostics: parsedResult.diagnostics ?? [],
+      };
       return {
         content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(parsedResult, null, 2),
-          },
+          { type: "text" as const, text: JSON.stringify(payload, null, 2) },
         ],
+        structuredContent: payload,
       };
     }
   }
@@ -349,8 +487,11 @@ Error Handling:
     inputSchema: {
       target: z
         .string()
-        .min(1, "target address is required")
-        .describe("Target contract address (0x-prefixed)"),
+        .regex(
+          /^0x[0-9a-fA-F]{40}$/,
+          "target must be a 0x-prefixed 20-byte hex address"
+        )
+        .describe("Target contract address (0x-prefixed, 42 chars)"),
       signature: z
         .string()
         .min(1, "function signature is required")
@@ -360,10 +501,10 @@ Error Handling:
         .optional()
         .describe("Space-separated arguments for the function call"),
       rpcUrl: z
-        .string()
-        .min(1, "rpcUrl is required")
+        .url({ error: "rpcUrl must be a valid URL" })
         .describe("JSON-RPC endpoint URL"),
     },
+    outputSchema: SimulatorDiagnosticSchema.shape,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -382,39 +523,43 @@ Error Handling:
     args?: string;
     rpcUrl: string;
   }) => {
-    const argsStr = args ?? "";
+    const argTokens = (args ?? "").split(/\s+/).filter((t) => t.length > 0);
+    const castArgs = [
+      "call",
+      target,
+      signature,
+      ...argTokens,
+      "--rpc-url",
+      rpcUrl,
+    ];
+    let parsedResult;
     try {
-      const { stdout } = await execAsync(
-        `cast call ${target} "${signature}" ${argsStr} --rpc-url ${rpcUrl}`
-      );
-      const parsedResult = parseCastCallOutput(stdout, "");
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(parsedResult, null, 2),
-          },
-        ],
-      };
+      const { stdout } = await execFileAsync("cast", castArgs, {
+        maxBuffer: MAX_BUFFER,
+      });
+      parsedResult = parseCastCallOutput(stdout, "");
     } catch (error: unknown) {
+      if (isEnoent(error)) {
+        return errorResult(
+          "Error: cast not found. Install Foundry: curl -L https://foundry.paradigm.xyz | bash"
+        );
+      }
       const err = error as {
         stdout?: string;
         stderr?: string;
         message?: string;
       };
-      const parsedResult = parseCastCallOutput(
+      parsedResult = parseCastCallOutput(
         err.stdout ?? "",
         err.message ?? err.stderr ?? ""
       );
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(parsedResult, null, 2),
-          },
-        ],
-      };
     }
+    return {
+      content: [
+        { type: "text" as const, text: JSON.stringify(parsedResult, null, 2) },
+      ],
+      structuredContent: parsedResult,
+    };
   }
 );
 
@@ -422,11 +567,11 @@ Error Handling:
 // Resources
 // ---------------------------------------------------------------------------
 function getResourceContent(relativePath: string): string {
-  const absolutePath = path.resolve(process.cwd(), relativePath);
+  const absolutePath = path.resolve(PKG_ROOT, relativePath);
   if (fs.existsSync(absolutePath)) {
     return fs.readFileSync(absolutePath, "utf-8");
   }
-  return `Pattern file not found at ${absolutePath}. Ensure the evm-agent-toolkit repository is the working directory.`;
+  return `Pattern file not found at ${absolutePath}. The skills/ directory may be missing from this installation.`;
 }
 
 server.resource(
