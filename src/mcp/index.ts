@@ -82,7 +82,7 @@ function isEnoent(error: unknown): boolean {
 // ---------------------------------------------------------------------------
 const server = new McpServer({
   name: "evm-agent-toolkit",
-  version: "1.0.0",
+  version: "1.1.0",
 });
 
 // ---------------------------------------------------------------------------
