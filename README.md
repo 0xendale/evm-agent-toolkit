@@ -1,5 +1,7 @@
 # EVM MCP Server
 
+[![smithery badge](https://smithery.ai/badge/0xendale/evm-agent-toolkit)](https://smithery.ai/servers/0xendale/evm-agent-toolkit)
+
 An MCP (Model Context Protocol) server that gives autonomous coding agents deterministic, schema-validated tools for EVM smart contract development — security scanning, gas profiling, compiler diagnostics, and transaction simulation.
 
 ## Why This Exists
