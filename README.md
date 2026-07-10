@@ -26,6 +26,16 @@ Raw CLI output from tools like Slither and Foundry is noisy, non-deterministic, 
 | `evm://gas/optimizations` | Gas optimization pattern library |
 | `evm://patterns/arbitrage` | Arbitrage strategy reference |
 
+## Prompts
+
+Skill workflows exposed as MCP prompts for clients without native skill support. Each embeds the full SKILL.md workflow.
+
+| Prompt | Args | Description |
+|--------|------|-------------|
+| `audit_contract` | `contractPath` | Severity-rated security audit (vulnerability-scanning workflow) |
+| `optimize_gas` | `projectPath` | Measured gas-optimization pass (gas-optimization workflow) |
+| `analyze_arbitrage` | `scenario` | Opportunity ledger net of fees/gas/slippage (arbitrage-analysis workflow) |
+
 ## Architecture
 
 ```text

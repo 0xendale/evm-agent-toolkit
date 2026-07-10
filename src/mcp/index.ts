@@ -980,6 +980,85 @@ server.resource(
 );
 
 // ---------------------------------------------------------------------------
+// Prompts — expose the skill workflows to MCP clients without native skill
+// support. Each prompt embeds the full SKILL.md so the agent follows the same
+// confirm-before-report discipline as Claude Code skill users.
+// ---------------------------------------------------------------------------
+function skillPromptMessages(skillName: string, taskLine: string) {
+  const skillText = getResourceContent(`./skills/${skillName}/SKILL.md`);
+  return {
+    messages: [
+      {
+        role: "user" as const,
+        content: {
+          type: "text" as const,
+          text: `${taskLine}\n\nFollow this workflow exactly:\n\n${skillText}`,
+        },
+      },
+    ],
+  };
+}
+
+server.registerPrompt(
+  "audit_contract",
+  {
+    title: "Audit EVM Contract",
+    description:
+      "Severity-rated security audit of a Solidity contract following the vulnerability-scanning workflow (pattern seek → confirm reachability → report). Uses evm_scan_vulnerabilities, evm_trace_call, and evm_inspect_storage_layout.",
+    argsSchema: {
+      contractPath: z
+        .string()
+        .describe("Absolute path to the Solidity file or Foundry project root"),
+    },
+  },
+  ({ contractPath }: { contractPath: string }) =>
+    skillPromptMessages(
+      "vulnerability-scanning",
+      `Audit the contract at ${contractPath} for security vulnerabilities and produce a severity-rated finding report.`
+    )
+);
+
+server.registerPrompt(
+  "optimize_gas",
+  {
+    title: "Optimize Contract Gas",
+    description:
+      "Measured gas-optimization pass following the gas-optimization workflow (one rewrite at a time, security + equivalence + measurement proofs). Uses evm_analyze_gas_profile, evm_scan_vulnerabilities, and evm_inspect_storage_layout.",
+    argsSchema: {
+      projectPath: z
+        .string()
+        .describe("Absolute path to the Foundry project root"),
+    },
+  },
+  ({ projectPath }: { projectPath: string }) =>
+    skillPromptMessages(
+      "gas-optimization",
+      `Reduce the gas costs of the contracts in the Foundry project at ${projectPath}. Measure every claimed saving.`
+    )
+);
+
+server.registerPrompt(
+  "analyze_arbitrage",
+  {
+    title: "Analyze Arbitrage Opportunity",
+    description:
+      "Quantify a DeFi price dislocation net of fees, gas, slippage, and bribes following the arbitrage-analysis workflow. Analysis only — no trade execution. Uses evm_simulate_transaction, evm_trace_call, and evm_decode_calldata.",
+    argsSchema: {
+      scenario: z
+        .string()
+        .describe(
+          "The opportunity to analyze: venues, pair, observed prices/spread, and trade size of interest"
+        ),
+    },
+  },
+  ({ scenario }: { scenario: string }) =>
+    skillPromptMessages(
+      "arbitrage-analysis",
+      `Analyze this potential arbitrage opportunity and produce an opportunity ledger: ${scenario}`
+    )
+);
+
+// ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
 async function main(): Promise<void> {

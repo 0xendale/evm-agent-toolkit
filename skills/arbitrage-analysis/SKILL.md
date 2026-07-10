@@ -31,7 +31,7 @@ Four reasoning steps, in order.
    thresholds in [`reference/strategies.md`](reference/strategies.md). List candidates with venues and observed spread.
 2. **Innovate** — Propose a concrete route per candidate (the leg sequence and
    venues).
-3. **Execute** — Compute `net_bps = spread_bps - fee_bps - gas_cost_bps - slippage_bps - validator_bribe_bps` for the specific trade size. In competitive L1 environments, bribes can consume 90-95% of gross profit. Factor in Maximal Arbitrage Value (MAV) for AMMs. Keep only routes with `net_bps > 0`; record the viable size band.
+3. **Execute** — Compute `net_bps = spread_bps - fee_bps - gas_cost_bps - slippage_bps - validator_bribe_bps` for the specific trade size. In competitive L1 environments, bribes can consume 90-95% of gross profit. Factor in Maximal Arbitrage Value (MAV) for AMMs. Keep only routes with `net_bps > 0`; record the viable size band. When an MCP server is available: use `evm_simulate_transaction` to read live pool quotes, `evm_trace_call` to dry-run a route leg and read its gas cost from the trace, and `evm_decode_calldata` to classify competing pending transactions.
 4. **Manage** — Emit the opportunity ledger: route, gross spread, each cost
    component, net bps, viable size band, and the reality caveats (MEV, depth,
    staleness).
