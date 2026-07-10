@@ -32,6 +32,8 @@ import { parseCastCallOutput, SimulatorDiagnosticSchema } from "../tools/simulat
 import { parseForgeStorageLayout, StorageEntrySchema } from "../tools/storage.js";
 import { parseCastTrace, TraceEventSchema } from "../tools/trace.js";
 import { parseCastDecodeOutput } from "../tools/decoder.js";
+import { parseForgeTestOutput, TestSuiteSchema } from "../tools/testrunner.js";
+import { parseVersionOutput, ToolVersionSchema } from "../tools/versions.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -977,6 +979,209 @@ server.resource(
       },
     ],
   })
+);
+
+// ---------------------------------------------------------------------------
+// Tool 8: evm_run_tests
+// ---------------------------------------------------------------------------
+server.registerTool(
+  "evm_run_tests",
+  {
+    title: "Run Foundry Tests",
+    description: `Run forge test and return structured per-suite, per-test results — including fuzz runs and the exact counterexample calldata for failing fuzz/invariant tests.
+
+Use this to verify behavior equivalence after a rewrite, run invariant suites, or drive a Generate-Repair-Execute proof-of-concept loop.
+
+Args:
+  - projectPath (string): Absolute path to the Foundry project root
+  - matchTest (string, optional): Only run test functions matching this regex (forge --match-test)
+  - matchPath (string, optional): Only run test files matching this glob (forge --match-path)
+
+Returns:
+  JSON object:
+  {
+    "allPassed": boolean,
+    "totalPassed": number,
+    "totalFailed": number,
+    "totalSkipped": number,
+    "suites": [
+      {
+        "name": string,          // e.g. "test/Vault.t.sol:VaultTest"
+        "passed": number, "failed": number, "skipped": number,
+        "tests": [
+          {
+            "name": string,            // e.g. "testFuzz_withdraw(uint256)"
+            "status": string,          // "pass" | "fail" | "skip"
+            "reason": string,          // Failure reason (on fail)
+            "counterexample": string,  // Fuzz counterexample calldata + args (on fuzz fail)
+            "gas": number,             // Gas for unit tests
+            "fuzzRuns": number,        // Runs for fuzz/invariant tests
+            "medianGas": number        // Median gas for fuzz tests
+          }
+        ]
+      }
+    ]
+  }
+
+Examples:
+  - "Do my invariant tests still hold?" → matchTest = "invariant"
+  - "Verify the refactor didn't break Vault" → matchPath = "test/Vault.t.sol"
+
+Error Handling:
+  - Returns isError=true if forge is not installed, the path is invalid, or compilation fails (use evm_compile_and_diagnose for compiler errors)`,
+    inputSchema: {
+      projectPath: z
+        .string()
+        .min(1, "projectPath is required")
+        .describe("Absolute path to the Foundry project root"),
+      matchTest: z
+        .string()
+        .optional()
+        .describe("Only run test functions matching this regex"),
+      matchPath: z
+        .string()
+        .optional()
+        .describe("Only run test files matching this glob"),
+    },
+    outputSchema: {
+      allPassed: z.boolean(),
+      totalPassed: z.number(),
+      totalFailed: z.number(),
+      totalSkipped: z.number(),
+      suites: z.array(TestSuiteSchema),
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  async ({
+    projectPath,
+    matchTest,
+    matchPath,
+  }: {
+    projectPath: string;
+    matchTest?: string;
+    matchPath?: string;
+  }) => {
+    if (!fs.existsSync(projectPath)) {
+      return errorResult(
+        `Error: projectPath does not exist: ${projectPath}. Provide an absolute path to a Foundry project root.`
+      );
+    }
+    const forgeArgs = ["test"];
+    if (matchTest) forgeArgs.push("--match-test", matchTest);
+    if (matchPath) forgeArgs.push("--match-path", matchPath);
+
+    let rawOutput = "";
+    try {
+      const { stdout } = await execFileAsync("forge", forgeArgs, {
+        cwd: projectPath,
+        maxBuffer: MAX_BUFFER,
+      });
+      rawOutput = stdout;
+    } catch (error: unknown) {
+      if (isEnoent(error)) {
+        return errorResult(
+          "Error: Forge not found. Install Foundry: curl -L https://foundry.paradigm.xyz | bash"
+        );
+      }
+      // forge test exits non-zero when tests fail; the report is on stdout.
+      const err = error as { stdout?: string; message?: string };
+      if (err.stdout) {
+        rawOutput = err.stdout;
+      } else {
+        return errorResult(
+          `Error: forge test failed to run. ${err.message ?? ""}`
+        );
+      }
+    }
+
+    const parsedResult = parseForgeTestOutput(rawOutput);
+    if (!parsedResult.success) {
+      return errorResult(`Error: ${parsedResult.error}`);
+    }
+    const payload = {
+      allPassed: parsedResult.allPassed ?? false,
+      totalPassed: parsedResult.totalPassed ?? 0,
+      totalFailed: parsedResult.totalFailed ?? 0,
+      totalSkipped: parsedResult.totalSkipped ?? 0,
+      suites: parsedResult.suites ?? [],
+    };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: truncateIfNeeded(JSON.stringify(payload, null, 2)),
+        },
+      ],
+      structuredContent: payload,
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Tool 9: evm_toolchain_versions
+// ---------------------------------------------------------------------------
+server.registerTool(
+  "evm_toolchain_versions",
+  {
+    title: "EVM Toolchain Versions",
+    description: `Report which host toolchain binaries (slither, forge, cast) are installed and their exact versions.
+
+Call this once before an analysis session to (a) verify prerequisites and (b) record versions so findings are reproducible — Slither detector sets and forge gas accounting change between releases.
+
+Args: none
+
+Returns:
+  JSON object:
+  {
+    "tools": [
+      {
+        "tool": string,        // "slither" | "forge" | "cast"
+        "installed": boolean,
+        "version": string      // First line of --version output (when installed)
+      }
+    ]
+  }
+
+Error Handling:
+  - Never errors; missing binaries are reported as installed: false`,
+    inputSchema: {},
+    outputSchema: {
+      tools: z.array(ToolVersionSchema),
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async () => {
+    const binaries = ["slither", "forge", "cast"];
+    const tools = await Promise.all(
+      binaries.map(async (tool) => {
+        try {
+          const { stdout } = await execFileAsync(tool, ["--version"], {
+            maxBuffer: MAX_BUFFER,
+          });
+          return parseVersionOutput(tool, stdout);
+        } catch {
+          return { tool, installed: false };
+        }
+      })
+    );
+    const payload = { tools };
+    return {
+      content: [
+        { type: "text" as const, text: JSON.stringify(payload, null, 2) },
+      ],
+      structuredContent: payload,
+    };
+  }
 );
 
 // ---------------------------------------------------------------------------

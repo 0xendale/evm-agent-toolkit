@@ -17,6 +17,8 @@ Raw CLI output from tools like Slither and Foundry is noisy, non-deterministic, 
 | `evm_inspect_storage_layout` | `readOnly`, `idempotent` | Run `forge inspect storage-layout`. Returns slot/offset/type per state variable — proxy-collision and packing checks. |
 | `evm_trace_call` | `readOnly`, `idempotent` | Run `cast call --trace`. Returns structured call tree with gas, call types, events, and revert frames. |
 | `evm_decode_calldata` | `readOnly`, `idempotent` | Decode hex calldata via `cast calldata-decode` (offline with signature) or `cast 4byte-decode` (selector lookup). |
+| `evm_run_tests` | `readOnly` | Run `forge test` (optional `matchTest`/`matchPath`). Returns per-suite results with gas, fuzz runs, and failure counterexamples. |
+| `evm_toolchain_versions` | `readOnly`, `idempotent` | Report installed/missing status and exact versions of `slither`, `forge`, `cast`. |
 
 ## Resources
 
@@ -49,7 +51,9 @@ evm-agent-toolkit/
 │   │   ├── simulator.ts# Cast call output → SimulatorDiagnostic
 │   │   ├── storage.ts  # Forge storage layout → StorageEntry[]
 │   │   ├── trace.ts    # Cast call traces → TraceEvent[]
-│   │   └── decoder.ts  # Cast calldata decode → DecodedCalldata
+│   │   ├── decoder.ts  # Cast calldata decode → DecodedCalldata
+│   │   ├── testrunner.ts # Forge test output → TestSuite[]
+│   │   └── versions.ts # Toolchain --version output → ToolVersion
 │   ├── rules/          # Agent system prompt injections
 │   └── hooks/          # Lifecycle hooks (UserPromptSubmit, Statusline)
 ├── tests/              # Vitest unit tests for all parsers
